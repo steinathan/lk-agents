@@ -15,8 +15,10 @@ from livekit.agents import (
     cli,
 )
 from loguru import logger
-
+from app.core.database import init_db
 from app.agent.runner import VoiceAgent
+from app.agent.routes import router as agent_router
+from app.knowledgebase.routes import router as kb_router
 from app.logging import configure_pretty_logging
 from app.utils import use_route_names_as_operation_ids
 
@@ -27,6 +29,7 @@ configure_pretty_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, Any]:
+    await init_db()
     yield
 
 
@@ -51,6 +54,9 @@ app.add_middleware(
 # ╩╚═└─┘└─┘ ┴ └─┘└─┘o
 
 router_prefix = "/api"
+
+app.include_router(agent_router, prefix=router_prefix)
+app.include_router(kb_router, prefix=router_prefix)
 
 
 @app.get("/health")

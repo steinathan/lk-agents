@@ -12,3 +12,4 @@ wheels/
 credentials.json
 .idea
 .env.local
+*.db

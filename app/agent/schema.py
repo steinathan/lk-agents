@@ -31,8 +31,6 @@ class CustomerInfo(BaseModel):
     customer_name: str | None = "N/A"
     customer_email: str | None = "N/A"
     customer_phone: str | None = "N/A"
-    has_existing_ride: bool = False
-
     model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
 
 
@@ -56,7 +54,7 @@ class AgentSettings(
     AgentSynthSettings,
     AgentTranscriberSettings,
     AgentProviderSettings,
-    CustomerInfo,
+    # CustomerInfo,
     ToolsInfo,
 ):
     greeting_message: str
@@ -107,7 +105,7 @@ When mentioning email addresses, spell them out clearly. For example, "john.doe@
         if self.language_code is not None:
             prompt += f"Always speak in {self.language_name} even if the user speaks in another language or wants to use another language.\n"
 
-        if self.customer_email or self.customer_email or self.customer_phone:
-            prompt += f"\n {'--' * 10} \n\n ## [Customer Information]:  \n Customer name: {self.customer_name} \n Customer email: {self.customer_email} \n Customer phone: {self.customer_phone}\n\n - Never ask of customer details since you already know them, but always ask for confirmation"
+        # if self.customer_email or self.customer_email or self.customer_phone:
+        #     prompt += f"\n {'--' * 10} \n\n ## [Customer Information]:  \n Customer name: {self.customer_name} \n Customer email: {self.customer_email} \n Customer phone: {self.customer_phone}\n\n - Never ask of customer details since you already know them, but always ask for confirmation"
 
         return prompt
