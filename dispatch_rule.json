@@ -1,0 +1,16 @@
+{
+  "name": "Inbound Dispatch Rule",
+  "trunk_ids": ["ST_gjqWbiyLfzx9"],
+  "rule": {
+    "dispatchRuleIndividual": {
+      "roomPrefix": "call-"
+    }
+  },
+  "room_config": {
+    "agents": [
+      {
+        "agent_name": "voicecab-inbound-agent"
+      }
+    ]
+  }
+}
