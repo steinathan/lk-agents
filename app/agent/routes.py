@@ -7,7 +7,7 @@ from app.agent.schema import AgentSettings
 router = APIRouter(tags=["agent"], prefix="/agent")
 
 
-@router.post("/publish", status_code=201)
+@router.patch("/publish", status_code=201)
 async def publish_agent(agent_service: AssistantServiceType, inputs: AgentSettings):
     try:
         agent = await agent_service.create_agent(inputs)

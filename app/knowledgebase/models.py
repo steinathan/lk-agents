@@ -7,3 +7,6 @@ class Knowledgebase(BaseTable, table=True):
     __tablename__: str = "knowledgebase"  # type: ignore # Explicit table name
     id: str = Field(default_factory=lambda: make_cuid("kb_"), primary_key=True)
     openai_file_id: str = Field()
+    openai_vector_store_id: str
+    filename: str
+    filesize: int

@@ -1,5 +1,6 @@
 import multiprocessing
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import Any, AsyncGenerator
 
@@ -95,7 +96,7 @@ def start_agent():
             entrypoint_fnc=VoiceAgent.entrypoint,
             prewarm_fnc=VoiceAgent.prewarm,
             worker_type=WorkerType.ROOM,
-            agent_name="voicecab-inbound-agent",
+            # agent_name="voicecab-inbound-agent",
         ),
     )
 
@@ -106,4 +107,5 @@ if __name__ == "__main__":
     agent_process = multiprocessing.Process(target=start_agent)
     agent_process.start()
 
-    uvicorn.run("main:app", host="0.0.0.0", port=1337, reload=True, log_level="info")
+    reload: bool = os.getenv("ENV", "development") == "development"
+    uvicorn.run("main:app", host="0.0.0.0", port=1337, reload=reload, log_level="info")

@@ -10,17 +10,23 @@ from livekit.agents import (
     stt,
     tts,
 )
-from livekit.agents.pipeline import AgentTranscriptionOptions, VoicePipelineAgent
 from livekit.plugins import (
     google,
     silero,
-    turn_detector,
 )
 from loguru import logger
+from livekit.agents.pipeline import VoicePipelineAgent
 
 from app.agent.schema import AgentSettings
-from com_bridge.dialer import voicecab_dailer
-from com_bridge.schemas import AgentLookupInputs
+from app.agent.service import AssistantService
+
+# from app.agent.tools import create_assistant_tool
+from app.agent.tools import DynamicCallActionsCls
+from app.core.database import get_session_db
+from livekit.agents.pipeline import AgentTranscriptionOptions
+
+
+from livekit.plugins import deepgram, openai
 
 credentials_file = "credentials.json"
 
@@ -39,28 +45,59 @@ def get_pipeline_agent_settings(
     llm: Any = None
     tts: Any = None
 
+    # TTS
     if agent_settings.synth_provider == "google":
         tts = google.TTS(
-            voice_name=agent_settings.voices[0]["voice_id"],
+            voice_name=agent_settings.voice.voice_name,
             credentials_file=credentials_file,
+        )
+
+    elif agent_settings.synth_provider == "openai":
+        tts = openai.TTS(
+            api_key=agent_settings.open_api_key,
+            voice=agent_settings.voice.voice_name,
+            model=agent_settings.voice.model or "tts-1",
         )
     else:
         raise ValueError(
             f"Synth provider {agent_settings.synth_provider} not yet implemented"
         )
 
+    # LLM
     if agent_settings.model_provider == "google":
         llm = google.LLM(api_key=os.environ["GOOGLE_API_KEY"], temperature=0.9)
+    elif agent_settings.model_provider == "openai":
+        llm = openai.LLM(
+            model="gpt-4o-mini",
+        )
+        # llm = AssistantLLM(
+        #     api_key=agent_settings.open_api_key,
+        #     assistant_opts=AssistantOptions(
+        #         create_options=AssistantCreateOptions(
+        #             model=typing.cast(ChatModels, agent_settings.model),
+        #             instructions=agent_settings.build_prompt(),
+        #             name=f"Assistant {agent_settings.agent_name}",
+        #             temperature=agent_settings.temperature,
+        #         )
+        #     ),
+        # )
     else:
         raise ValueError(
             f"STT provider {agent_settings.model_provider} not yet implemented"
         )
 
-    if agent_settings.transiber_provider == "google":
+    # STT
+    if agent_settings.transcriber_provider == "google":
         stt = google.STT(credentials_file=credentials_file)
+    elif agent_settings.transcriber_provider == "deepgram":
+        stt = deepgram.STT(
+            api_key=os.environ["DEEPGRAM_API_KEY"], language="en-US", model="nova-3"
+        )
+    elif agent_settings.transcriber_provider == "openai":
+        stt = openai.STT(api_key=agent_settings.open_api_key)
     else:
         raise ValueError(
-            f"STT provider {agent_settings.transiber_provider} not yet implemented"
+            f"STT provider {agent_settings.transcriber_provider} not yet implemented"
         )
 
     return {
@@ -77,6 +114,8 @@ class VoiceAgent:
 
     @staticmethod
     async def entrypoint(ctx: JobContext):
+        service = AssistantService(next(get_session_db()))
+
         logger.debug(f"\n Room Metadata:\n {ctx.room.metadata}")
         logger.info(f"connecting to room {ctx.room.name}")
         await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
@@ -103,17 +142,16 @@ class VoiceAgent:
             ctx.shutdown()
             return
 
-        # Get the agent settings from API call
-        agent_settings = await voicecab_dailer.lookup_agent_with(
-            inputs=AgentLookupInputs(
-                phone_number=agent_phone,
-                customer_phone=customer_phone,
-            )
+        agent = await service.find_agent_by(
+            phone_number=agent_phone,
         )
-        if not agent_settings:
-            logger.error("Could not get agent settings, shutting down room...")
+
+        if not agent:
+            logger.error("Could not find agent, shutting down room...")
             ctx.shutdown()
             return
+
+        agent_settings = AgentSettings.model_validate(agent.config)
 
         # build the full prompt including date/time and additional intructions
         full_prompt = agent_settings.build_prompt(include_greeting=False)
@@ -121,24 +159,47 @@ class VoiceAgent:
         logger.debug(
             f"\n\nFull Adjusted Prompt: \n{'---' * 20} \n {full_prompt} \n {'---' * 20}\n\n"
         )
+
+        # Add the prompt to the context
         initial_ctx = llm.ChatContext().append(
             role="system",
             text=full_prompt,
         )
 
-        vp_cfg = get_pipeline_agent_settings(agent_settings=agent_settings)
+        voice_pipeline_config = get_pipeline_agent_settings(
+            agent_settings=agent_settings
+        )
 
-        # Initialize the agent
+        # initialize the agent
+        # fnc_ctx = create_assistant_tool([])
+
+        fnc_ctx = DynamicCallActionsCls(
+            api=ctx.api, participant=participant, room=ctx.room, ctx=ctx
+        )
+        # agent = multimodal.MultimodalAgent(
+        #     model=openai.realtime.RealtimeModel(
+        #         voice="alloy",
+        #         temperature=0.8,
+        #         instructions=(
+        #             "You are a helpful assistant, greet the user and help them with their trip planning. "
+        #             "When performing function calls, let user know that you are checking the weather."
+        #         ),
+        #         turn_detection=openai.realtime.ServerVadOptions(
+        #             threshold=0.6, prefix_padding_ms=200, silence_duration_ms=500
+        #         ),
+        #     ),  # type: ignore
+        #     fnc_ctx=fnc_ctx,
+        #     chat_ctx=initial_ctx,
+        # )
         agent = VoicePipelineAgent(
             vad=ctx.proc.userdata["vad"],
-            stt=vp_cfg["stt"],
-            llm=vp_cfg["llm"],
-            tts=vp_cfg["tts"],
-            turn_detector=turn_detector.EOUModel(),
+            stt=voice_pipeline_config["stt"],
+            llm=voice_pipeline_config["llm"],
+            tts=voice_pipeline_config["tts"],
             allow_interruptions=True,
             transcription=AgentTranscriptionOptions(),
             chat_ctx=initial_ctx,
-            plotting=True,
+            fnc_ctx=fnc_ctx,
         )
 
         usage_collector = metrics.UsageCollector()

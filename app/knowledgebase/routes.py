@@ -1,4 +1,4 @@
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from loguru import logger
 from openai import OpenAI
 from sqlmodel import select
@@ -32,22 +32,62 @@ async def upload_knowledgebase(
 
     kbs: list[Knowledgebase] = []
     for file in files:
-        file_data = await file.read()
-        openai_file = client.files.create(file=file_data, purpose="assistants")
-        kbs.append(Knowledgebase(openai_file_id=openai_file.id))
+        if not file.filename:
+            logger.warning("Skipping one file has no filename")
+            continue
 
-    # save first before creating files
-    session.add_all(kbs)
-    session.commit()
+        logger.debug(f"processing {file.filename}, {file.content_type}")
+        file_data: bytes = await file.read()
+        openai_file = client.files.create(
+            file=(file.filename, file_data, file.content_type), purpose="assistants"
+        )
+        kbs.append(
+            Knowledgebase(
+                filesize=file.size,  # type: ignore
+                openai_vector_store_id=vector_store.id,
+                filename=file.filename,
+                openai_file_id=openai_file.id,
+            )
+        )
 
     # create vectore store file for each file uploaded
     vector_store_file = client.beta.vector_stores.file_batches.create(
         vector_store_id=vector_store.id, file_ids=[kb.openai_file_id for kb in kbs]
     )
 
+    session.add_all(kbs)
+    session.commit()
+
     logger.info(f"Knowledgebase uploaded successfully: {vector_store_file}")
+
+    return {"message": "files uploaded successfully"}
 
 
 @router.get("/")
 async def get_knowledgebase(session: DatabaseSessionType):
     return session.exec(select(Knowledgebase)).all()
+
+
+@router.delete("/{id}")
+async def remove_knowledgebase(session: DatabaseSessionType, id: str):
+    """Deletes the knowledgebase by id from db and from openai"""
+    stmt = select(Knowledgebase).where(Knowledgebase.id == id)
+    kb = session.exec(stmt).first()
+    if not kb:
+        raise HTTPException(status_code=404, detail="Knowledgebase not found")
+
+    # delete knowledgebase
+    logger.debug(
+        f"Deleting knowledgebase: {kb.filename} with openai_file_id: {kb.openai_file_id}"
+    )
+    session.delete(kb)
+    session.commit()
+
+    # remove file in vectorstore
+    client.beta.vector_stores.files.delete(
+        vector_store_id=kb.openai_vector_store_id, file_id=kb.openai_file_id
+    )
+    # remove file in openai
+    client.files.delete(kb.openai_file_id)
+
+    return {"message": "Knowledgebase deleted successfully"}

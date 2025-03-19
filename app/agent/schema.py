@@ -1,29 +1,42 @@
 from datetime import datetime
 import os
+from typing import Literal
 from pydantic import BaseModel, Field, computed_field
 from loguru import logger
 
 from app.utils import make_cuid
 
 
+AgentVoiceProvider = Literal["openai", "google"]
+AgentLLMProvider = Literal["openai", "google"]
+AgentTranscriberProvider = Literal["deepgram", "google", "openai"]
+
+
+class AgentSecretSettings(BaseModel):
+    open_api_key: str | None = Field(
+        default_factory=lambda: os.getenv("OPENAI_API_KEY")
+    )
+
+
+class AgentVoice(BaseModel):
+    voice_name: str
+    language_code: str
+    model: str | None = None
+
+
 class AgentSynthSettings(BaseModel):
-    synth_provider: str = "google"
+    synth_provider: AgentVoiceProvider = "openai"
     language_code: str = "en"
-    voices: list = [
-        {
-            "voice_id": "en-US-Journey-D",
-            "language_code": "en",
-        }
-    ]
+    voice: AgentVoice = AgentVoice(voice_name="alloy", language_code="en")
 
 
 class AgentTranscriberSettings(BaseModel):
-    transiber_provider: str = "google"
+    transcriber_provider: AgentTranscriberProvider = "deepgram"
 
 
-class AgentProviderSettings(BaseModel):
-    model_provider: str = "google"
-    model: str = "gemini-2.0-flash-001"
+class AgentLLMProviderSettings(BaseModel):
+    model_provider: AgentLLMProvider = "openai"
+    model: str = "gpt-4o-mini"
     temperature: float = 0.7
 
 
@@ -32,12 +45,6 @@ class CustomerInfo(BaseModel):
     customer_email: str | None = "N/A"
     customer_phone: str | None = "N/A"
     model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
-
-
-class CallTransferInfo(BaseModel):
-    condition: str = Field(
-        "if the customer has an existing wants to speak with a human"
-    )
 
 
 class ActionInfo(BaseModel):
@@ -53,13 +60,14 @@ class ToolsInfo(BaseModel):
 class AgentSettings(
     AgentSynthSettings,
     AgentTranscriberSettings,
-    AgentProviderSettings,
+    AgentLLMProviderSettings,
+    AgentSecretSettings,
     # CustomerInfo,
     ToolsInfo,
 ):
     greeting_message: str
     system_prompt: str
-    agent_name: str = "Greg"
+    agent_name: str = "Navi"
     agent_phone: str | None = Field(
         default_factory=lambda: os.getenv("TEST_AGENT_PHONE")
     )
