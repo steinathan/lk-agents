@@ -22,6 +22,7 @@ from app.agent.routes import router as agent_router
 from app.knowledgebase.routes import router as kb_router
 from app.logging import configure_pretty_logging
 from app.utils import use_route_names_as_operation_ids
+from app.core.config import settings
 
 load_dotenv(dotenv_path=".env.local")
 
@@ -96,7 +97,7 @@ def start_agent():
             entrypoint_fnc=VoiceAgent.entrypoint,
             prewarm_fnc=VoiceAgent.prewarm,
             worker_type=WorkerType.ROOM,
-            # agent_name="voicecab-inbound-agent",
+            agent_name=settings.LIVEKIT_AGENT_NAME,
         ),
     )
 

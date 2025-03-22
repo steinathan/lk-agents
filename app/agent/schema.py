@@ -57,7 +57,13 @@ class ToolsInfo(BaseModel):
     actions: list[ActionInfo] = []
 
 
+class AgentClientInformation(BaseModel):
+    account_id: str | None = None
+    """ the account id of the user that is using this agent """
+
+
 class AgentSettings(
+    AgentClientInformation,
     AgentSynthSettings,
     AgentTranscriberSettings,
     AgentLLMProviderSettings,

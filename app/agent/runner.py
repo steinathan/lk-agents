@@ -8,6 +8,7 @@ from livekit.agents import (
     llm,
     metrics,
     stt,
+    multimodal,
     tts,
 )
 from livekit.plugins import (
@@ -29,6 +30,9 @@ from livekit.agents.pipeline import AgentTranscriptionOptions
 from livekit.plugins import deepgram, openai
 
 credentials_file = "credentials.json"
+
+
+IS_MULTI_MODAL = False
 
 
 class VoicePipelineAgentSettings(TypedDict):
@@ -70,17 +74,18 @@ def get_pipeline_agent_settings(
         llm = openai.LLM(
             model="gpt-4o-mini",
         )
-        # llm = AssistantLLM(
-        #     api_key=agent_settings.open_api_key,
-        #     assistant_opts=AssistantOptions(
-        #         create_options=AssistantCreateOptions(
-        #             model=typing.cast(ChatModels, agent_settings.model),
-        #             instructions=agent_settings.build_prompt(),
-        #             name=f"Assistant {agent_settings.agent_name}",
-        #             temperature=agent_settings.temperature,
-        #         )
-        #     ),
-        # )
+        if False:
+            llm = AssistantLLM(
+                api_key=agent_settings.open_api_key,
+                assistant_opts=AssistantOptions(
+                    create_options=AssistantCreateOptions(
+                        model=typing.cast(ChatModels, agent_settings.model),
+                        instructions=agent_settings.build_prompt(),
+                        name=f"Assistant {agent_settings.agent_name}",
+                        temperature=agent_settings.temperature,
+                    )
+                ),
+            )
     else:
         raise ValueError(
             f"STT provider {agent_settings.model_provider} not yet implemented"
@@ -171,36 +176,37 @@ class VoiceAgent:
         )
 
         # initialize the agent
-        # fnc_ctx = create_assistant_tool([])
-
         fnc_ctx = DynamicCallActionsCls(
             api=ctx.api, participant=participant, room=ctx.room, ctx=ctx
         )
-        # agent = multimodal.MultimodalAgent(
-        #     model=openai.realtime.RealtimeModel(
-        #         voice="alloy",
-        #         temperature=0.8,
-        #         instructions=(
-        #             "You are a helpful assistant, greet the user and help them with their trip planning. "
-        #             "When performing function calls, let user know that you are checking the weather."
-        #         ),
-        #         turn_detection=openai.realtime.ServerVadOptions(
-        #             threshold=0.6, prefix_padding_ms=200, silence_duration_ms=500
-        #         ),
-        #     ),  # type: ignore
-        #     fnc_ctx=fnc_ctx,
-        #     chat_ctx=initial_ctx,
-        # )
-        agent = VoicePipelineAgent(
-            vad=ctx.proc.userdata["vad"],
-            stt=voice_pipeline_config["stt"],
-            llm=voice_pipeline_config["llm"],
-            tts=voice_pipeline_config["tts"],
-            allow_interruptions=True,
-            transcription=AgentTranscriptionOptions(),
-            chat_ctx=initial_ctx,
-            fnc_ctx=fnc_ctx,
-        )
+
+        if IS_MULTI_MODAL:
+            agent = multimodal.MultimodalAgent(
+                model=openai.realtime.RealtimeModel(
+                    voice="alloy",
+                    temperature=0.8,
+                    instructions=(
+                        "You are a helpful assistant, greet the user and help them with their trip planning. "
+                        "When performing function calls, let user know that you are checking the weather."
+                    ),
+                    turn_detection=openai.realtime.ServerVadOptions(
+                        threshold=0.6, prefix_padding_ms=200, silence_duration_ms=500
+                    ),
+                ),  # type: ignore
+                fnc_ctx=fnc_ctx,
+                chat_ctx=initial_ctx,
+            )
+        else:
+            agent = VoicePipelineAgent(
+                vad=ctx.proc.userdata["vad"],
+                stt=voice_pipeline_config["stt"],
+                llm=voice_pipeline_config["llm"],
+                tts=voice_pipeline_config["tts"],
+                allow_interruptions=True,
+                transcription=AgentTranscriptionOptions(),
+                chat_ctx=initial_ctx,
+                fnc_ctx=fnc_ctx,
+            )
 
         usage_collector = metrics.UsageCollector()
 
@@ -211,8 +217,10 @@ class VoiceAgent:
 
         agent.start(ctx.room, participant)
 
-        # speak greeting message
-        await agent.say(
-            source=agent_settings.greeting_message,
-            allow_interruptions=True,
-        )
+        if isinstance(agent, multimodal.MultimodalAgent):
+            agent.generate_reply()
+        else:
+            await agent.say(
+                source=agent_settings.greeting_message,
+                allow_interruptions=True,
+            )

@@ -1,5 +1,3 @@
-import asyncio
-import json
 from livekit import rtc, api
 from livekit.agents import llm, JobContext
 from typing import Annotated
@@ -232,9 +230,6 @@ DynamicCallActionsCls = create_call_actions_class(
     enabled_functions=enabled_functions, dynamic_schemas=tools
 )
 
-# raise ValueError('invalid method signature')
-# ValueError: invalid method signature
-
 if __name__ == "__main__":
-    action = DynamicCallActionsCls(api=None, participant=None, room=None, ctx=None)
+    action = DynamicCallActionsCls(api=None, participant=None, room=None, ctx=None)  # type: ignore
     print(action)
