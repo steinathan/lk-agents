@@ -3,36 +3,19 @@ from datetime import datetime
 import os
 from dotenv import load_dotenv
 from loguru import logger
+from pydantic import BaseModel
 from sqlmodel import Field, SQLModel, Session, create_engine, select
 from twilio.rest import Client
+from twilio.rest.trunking.v1.trunk import TrunkInstance
 from app.core.config import settings
 
 from livekit import api
 from livekit.protocol.sip import ListSIPInboundTrunkRequest
 
+from app.lk_connector.models import InboundTrunk, PhoneNumber
+
 
 load_dotenv(dotenv_path=".env.local")
-
-
-class InboundTrunk(SQLModel, table=True):
-    __tablename__ = "inbound_trunks"  # type: ignore
-    trunk_id: str = Field(primary_key=True)
-
-    livekit_sip_trunk_id: str | None = Field(default=None)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}
-    )
-
-
-class PhoneNumber(SQLModel, table=True):
-    __tablename__ = "phone_numbers"  # type: ignore
-    phone_number: str = Field(primary_key=True)
-    trunk_id: str = Field(default=None, foreign_key="inbound_trunks.trunk_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(
-        default_factory=datetime.utcnow, sa_column_kwargs={"onupdate": datetime.utcnow}
-    )
 
 
 sqlite_file_name = "trunk.db"
@@ -56,7 +39,7 @@ def get_env_var(var_name):
     return value
 
 
-def create_twilio_trunk(session: Session, client, sip_uri):
+def create_twilio_trunk(session: Session, client: Client, sip_uri) -> TrunkInstance:
     logger.info(f"Creating LiveKit Trunk on Twilio: {sip_uri}")
     domain_name = f"livekit-trunk-{os.urandom(4).hex()}.pstn.twilio.com"
     trunk = client.trunking.v1.trunks.create(
@@ -78,55 +61,6 @@ def create_twilio_trunk(session: Session, client, sip_uri):
     session.refresh(inbound_trunk)
 
     return trunk
-
-
-async def create_lk_inbound_trunk(phone_numbers: list[str]):
-    livekit_api = api.LiveKitAPI()
-    phone_numbers = list(set(phone_numbers))
-
-    trunk = api.SIPInboundTrunkInfo(
-        name="Inbound LiveKit Trunk",
-        numbers=phone_numbers,
-        krisp_enabled=True,
-    )
-
-    request = api.CreateSIPInboundTrunkRequest(trunk=trunk)
-    logger.debug(
-        "Creating inbound trunk with command: lk sip inbound create inbound_trunk.json"
-    )
-
-    trunk = await livekit_api.sip.create_sip_inbound_trunk(request)
-    logger.info(f"Created inbound trunk with SID: {trunk}")
-
-    await livekit_api.aclose()
-    return trunk.sip_trunk_id
-
-
-async def create_lk_dispatch_rule(trunk_sids: list[str]):
-    lkapi = api.LiveKitAPI()
-
-    request = api.CreateSIPDispatchRuleRequest(
-        name="Inbound Dispatch Rule",
-        trunk_ids=trunk_sids,
-        rule=api.SIPDispatchRule(
-            dispatch_rule_individual=api.SIPDispatchRuleIndividual(
-                room_prefix="call-",
-            )
-        ),
-        room_config=api.RoomConfiguration(
-            agents=[
-                api.RoomAgentDispatch(
-                    agent_name=settings.LIVEKIT_AGENT_NAME,
-                )
-            ]
-        ),
-    )
-    dispatch = await lkapi.sip.create_sip_dispatch_rule(request)
-
-    await lkapi.aclose()
-
-    logger.info(f"Created dispatch rule with SID: {dispatch}")
-    return dispatch
 
 
 async def _cleanup_lk_inbound_trunks():
@@ -159,19 +93,102 @@ async def _cleanup_lk_dispatch_rules():
     await livekit_api.aclose()
 
 
-async def cleanup():
-    """This is called to remove all rules and trunks created, since they'll be re-created with updated information"""
-    await asyncio.gather(_cleanup_lk_inbound_trunks(), _cleanup_lk_dispatch_rules())
+async def create_lk_inbound_trunk(phone_numbers: list[str]):
+    livekit_api = api.LiveKitAPI()
+    phone_numbers = list(set(phone_numbers))
+
+    trunk = api.SIPInboundTrunkInfo(
+        name="Inbound LiveKit Trunk",
+        numbers=phone_numbers,
+        krisp_enabled=True,
+    )
+
+    # clean up existing trunks since we'll re-create them with newly added phone numbers
+    await _cleanup_lk_inbound_trunks()
+
+    request = api.CreateSIPInboundTrunkRequest(trunk=trunk)
+    logger.debug(
+        "Creating inbound trunk with command: lk sip inbound create inbound_trunk.json"
+    )
+
+    trunk = await livekit_api.sip.create_sip_inbound_trunk(request)
+    logger.info(f"Created inbound trunk with SID: {trunk}")
+
+    await livekit_api.aclose()
+    return trunk.sip_trunk_id
 
 
-async def main():
+async def create_lk_dispatch_rule(
+    trunk_sids: list[str], all=False
+) -> api.SIPDispatchRuleInfo:
+    lkapi = api.LiveKitAPI()
+
+    logger.info(f"Creating inbound dispatch rule: {trunk_sids}...")
+    request = api.CreateSIPDispatchRuleRequest(
+        name="Inbound Dispatch Rule",
+        trunk_ids=trunk_sids if all == False else None,
+        rule=api.SIPDispatchRule(
+            dispatch_rule_individual=api.SIPDispatchRuleIndividual(
+                room_prefix="call-",
+            )
+        ),
+        room_config=api.RoomConfiguration(
+            agents=[
+                api.RoomAgentDispatch(
+                    agent_name=settings.LIVEKIT_AGENT_NAME,
+                )
+            ]
+        ),
+    )
+
+    # clean up to avoid duplicate dispatch rules
+    await _cleanup_lk_dispatch_rules()
+    dispatch = await lkapi.sip.create_sip_dispatch_rule(request)
+
+    await lkapi.aclose()
+
+    logger.info(f"Created dispatch rule with SID: {dispatch}")
+    return dispatch
+
+
+async def add_phone_to_twilio_trunk(
+    client: Client, phone_number: str, livekit_trunk: TrunkInstance
+):
+    logger.info(
+        f"Adding phone number {phone_number} to Twilio trunk: {livekit_trunk.sid}..."
+    )
+    incoming_phone_number = client.incoming_phone_numbers.list(
+        phone_number=phone_number
+    )
+
+    if incoming_phone_number:
+        phone_number_sid = incoming_phone_number[0].sid
+        client.trunking.v1.trunks(str(livekit_trunk.sid)).phone_numbers.create(
+            phone_number_sid=phone_number_sid  # type: ignore
+        )
+        logger.info(
+            f"Associated phone number {phone_number} with trunk {livekit_trunk.sid}"
+        )
+    else:
+        raise ValueError(
+            f"Phone number {phone_number} not found in your Twilio account."
+        )
+
+
+class ConnectParams(BaseModel):
+    phone_number: str
+    sip_url: str
+    twilio_auth_token: str
+    twilio_account_sid: str
+
+
+async def connect_custom_twilio_to_livekit(params: ConnectParams):
     with Session(engine) as session:
         print("Creating inbound trunk...", os.environ.get("TWILIO_ACCOUNT_SID"))
 
-        await cleanup()
-        account_sid = get_env_var("TWILIO_ACCOUNT_SID")
-        auth_token = get_env_var("TWILIO_AUTH_TOKEN")
-        phone_number = get_env_var("TWILIO_PHONE_NUMBER")
+        account_sid = params.twilio_account_sid
+        auth_token = params.twilio_auth_token
+        phone_number = params.phone_number
         sip_uri = get_env_var("LIVEKIT_SIP_URI")
 
         client = Client(account_sid, auth_token)
@@ -186,10 +203,16 @@ async def main():
             None,
         )
         if not livekit_trunk:
-            livekit_trunk = create_twilio_trunk(session, client, sip_uri)
+            livekit_trunk = create_twilio_trunk(
+                session=session, client=client, sip_uri=sip_uri
+            )
         else:
             logger.info("LiveKit Trunk already exists. Using the existing trunk.")
             logger.info(livekit_trunk.sid)
+
+        await add_phone_to_twilio_trunk(
+            client=client, phone_number=phone_number, livekit_trunk=livekit_trunk
+        )
 
         # update the existing trunk in db
         db_trunk = session.exec(
@@ -226,6 +249,7 @@ async def main():
 
             # update the livekit dispatch rule into the database
             db_trunk.livekit_sip_trunk_id = new_trunk_id
+            db_trunk.active = True
             session.add(db_trunk)
             session.commit()
             session.refresh(db_trunk)
@@ -250,4 +274,10 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    params = ConnectParams(
+        phone_number=os.environ["TWILIO_PHONE_NUMBER"],
+        sip_url=os.environ["LIVEKIT_URL"],
+        twilio_account_sid=os.environ["TWILIO_ACCOUNT_SID"],
+        twilio_auth_token=os.environ["TWILIO_AUTH_TOKEN"],
+    )
+    asyncio.run(connect_custom_twilio_to_livekit(params))

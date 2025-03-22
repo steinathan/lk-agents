@@ -20,6 +20,7 @@ from app.core.database import init_db
 from app.agent.runner import VoiceAgent
 from app.agent.routes import router as agent_router
 from app.knowledgebase.routes import router as kb_router
+from app.lk_connector.routes import router as lk_router
 from app.logging import configure_pretty_logging
 from app.utils import use_route_names_as_operation_ids
 from app.core.config import settings
@@ -59,6 +60,7 @@ router_prefix = "/api"
 
 app.include_router(agent_router, prefix=router_prefix)
 app.include_router(kb_router, prefix=router_prefix)
+app.include_router(lk_router, prefix=router_prefix)
 
 
 @app.get("/health")
