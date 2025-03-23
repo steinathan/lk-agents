@@ -10,3 +10,4 @@ class Knowledgebase(BaseTable, table=True):
     openai_vector_store_id: str
     filename: str
     filesize: int
+    account_id: str

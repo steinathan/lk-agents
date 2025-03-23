@@ -14,16 +14,18 @@ client = OpenAI()
 VECTOR_STORE_NAME = "Assistant Knowledgebase"
 
 
-@router.post("/upload")
+@router.post("/{account_id}/upload")
 async def upload_knowledgebase(
-    session: DatabaseSessionType, files: list[UploadFile] = File(...)
+    session: DatabaseSessionType, account_id: str, files: list[UploadFile] = File(...)
 ):
     logger.info("Uploading knowledgebase...")
 
     vector_stores = client.beta.vector_stores.list()
     if len(vector_stores.data) == 0:
         logger.info("Creating vector store for knowledgebase...")
-        vector_store = client.beta.vector_stores.create(name=VECTOR_STORE_NAME)
+        vector_store = client.beta.vector_stores.create(
+            name=VECTOR_STORE_NAME, metadata={"account_id": account_id}
+        )
     else:  # pragma: no cover
         vector_store = vector_stores.data[0]
         logger.debug(f"Using existing vector store: {vector_store}")
@@ -47,6 +49,7 @@ async def upload_knowledgebase(
                 openai_vector_store_id=vector_store.id,
                 filename=file.filename,
                 openai_file_id=openai_file.id,
+                account_id=account_id,
             )
         )
 
@@ -63,9 +66,11 @@ async def upload_knowledgebase(
     return {"message": "files uploaded successfully"}
 
 
-@router.get("/")
-async def get_knowledgebase(session: DatabaseSessionType):
-    return session.exec(select(Knowledgebase)).all()
+@router.get("/{account_id}")
+async def get_knowledgebase(session: DatabaseSessionType, account_id: str):
+    return session.exec(
+        select(Knowledgebase).where(Knowledgebase.account_id == account_id)
+    ).all()
 
 
 @router.delete("/{id}")

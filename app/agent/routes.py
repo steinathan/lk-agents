@@ -48,7 +48,10 @@ async def make_call(
 ):
     """use the agent to make an outbound call"""
     try:
-        return await agent_service.make_outbound_call(agent_id, inputs)
+        await agent_service.make_outbound_call(agent_id, inputs)
+        return {
+            "message": "call started successfully",
+        }
     except Exception as e:
         logger.exception(f"Failed to create agent: {e}")
         return JSONResponse(status_code=500, content={"error": str(e)})

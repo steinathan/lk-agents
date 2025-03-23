@@ -4,6 +4,8 @@ from typing import Literal
 from pydantic import BaseModel, Field, computed_field
 from loguru import logger
 
+from app.agent.tools import ToolConfig
+
 
 AgentVoiceProvider = Literal["openai", "google"]
 AgentLLMProvider = Literal["openai", "google"]
@@ -50,14 +52,9 @@ class CustomerInfo(BaseModel):
     model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
 
 
-class ActionInfo(BaseModel):
-    # TODO: implement this actions schema
-    pass
-
-
 class ToolsInfo(BaseModel):
     knowledgebase_ids: list[str] = []
-    actions: list[ActionInfo] = []
+    actions: list[ToolConfig] = []
 
 
 class AgentClientInformation(BaseModel):

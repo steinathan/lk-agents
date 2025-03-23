@@ -1,3 +1,4 @@
+import json
 from loguru import logger
 from sqlmodel import Session, select
 
@@ -5,8 +6,11 @@ from app.agent.models import AgentModel
 from app.agent.schema import AgentSettings, MakeOutboundCallInputs
 from openai import OpenAI
 
-from app.lk_connector.models import InboundTrunk, PhoneNumber
+from app.lk_connector.models import InboundTrunk, OutboundTrunk, PhoneNumber
 from app.utils import make_cuid
+from livekit import api
+
+from app.core.config import settings
 
 
 class AssistantService:
@@ -104,18 +108,45 @@ class AssistantService:
 
     async def make_outbound_call(
         self, agent_id: str, inputs: MakeOutboundCallInputs
-    ) -> str:
+    ) -> bool:
         agent = await self.find_agent(agent_id)
         if not agent:
             raise ValueError(f"Agent {agent_id} not found")
 
+        # find the outbound sip trunk for the call
+        account_id = agent.config["account_id"]
+        if not account_id:
+            raise ValueError(
+                f"Agent {agent_id} is not connected to an outbound SIP trunk"
+            )
+
+        outbound_trunk = self.session.exec(
+            select(OutboundTrunk).where(OutboundTrunk.account_id == account_id)
+        ).first()
+
+        if not outbound_trunk:
+            raise ValueError(
+                f"could not find connected outbound trunk for the account: {account_id}"
+            )
+
         payload = {
             "agent_id": agent_id,
-            "sip_trunk_id": agent.config["account_id"],
+            "agent_name": agent.config["agent_name"],
+            "sip_trunk_id": outbound_trunk.livekit_sip_trunk_id,
             "agent_phone": inputs.from_number or agent.config["agent_phone"],
             "customer_phone": inputs.to_number,
             "direction": "outbound",
         }
-
         logger.debug(f"Making outbound call: {payload}")
-        return "call started successfully"
+
+        lkapi = api.LiveKitAPI()
+        dispatch = await lkapi.agent_dispatch.create_dispatch(
+            api.CreateAgentDispatchRequest(
+                agent_name=settings.LIVEKIT_AGENT_NAME,
+                room=make_cuid("call-"),
+                metadata=json.dumps(payload),
+            )
+        )
+        logger.debug(f"created dispatch: {dispatch}")
+        await lkapi.aclose()
+        return True

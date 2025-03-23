@@ -1,4 +1,5 @@
 import json
+from json import tool
 import os
 from typing import Any, TypedDict
 
@@ -24,9 +25,9 @@ from app.agent.service import AssistantService
 from livekit import api
 
 # from app.agent.tools import create_assistant_tool
-from app.agent.tools import DynamicCallActionsCls
 from app.core.database import get_session_db
 from livekit.agents.pipeline import AgentTranscriptionOptions
+import app.agent.tools as tools
 
 
 from livekit.plugins import deepgram, openai
@@ -132,13 +133,14 @@ class VoiceAgent:
         # `create_sip_participant` starts dialing the user
         if (
             metadict.get("direction", None) == "outbound"
+            and metadict.get("sip_trunk_id", None) is not None
             and metadict.get("customer_phone", None) is not None
         ):
             logger.info(f"starting outbound call: {metadict}")
             await ctx.api.sip.create_sip_participant(
                 api.CreateSIPParticipantRequest(
                     room_name=ctx.room.name,
-                    sip_trunk_id="ST_MN4cDinM7YZf",
+                    sip_trunk_id=metadict["sip_trunk_id"],
                     sip_call_to=metadict["customer_phone"],
                     participant_identity=metadict.get(
                         "agent_name", "Default Agent Name"
@@ -206,8 +208,20 @@ class VoiceAgent:
         )
 
         # initialize the agent
+        enabled_functions = [
+            "end_call",
+            "detected_answering_machine",
+        ]
+
+        logger.info(f"created {len(agent_settings.actions)} dynamic functions")
+        DynamicCallActionsCls = tools.create_call_actions_class(
+            enabled_functions=enabled_functions, dynamic_schemas=agent_settings.actions
+        )
         fnc_ctx = DynamicCallActionsCls(
-            api=ctx.api, participant=participant, room=ctx.room, ctx=ctx
+            api=ctx.api,
+            participant=participant,
+            room=ctx.room,
+            ctx=ctx,
         )
 
         if IS_MULTI_MODAL:

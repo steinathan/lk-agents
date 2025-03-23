@@ -111,7 +111,7 @@ class CallActions(llm.FunctionContext):
             logger.info(f"Error while ending call: {e}")
 
     async def end_call(self):
-        """Use this when you or the user says goodbye and want to end the call."""
+        """Use this when you or the user says goodbye or you don't want to continue, eg when you say something like "have a wonderful day" and want to end the call."""
         logger.info(f"Ending call for {self.participant.identity}")
         await self.hangup()
 
@@ -161,75 +161,81 @@ def create_call_actions_class(
     return DynamicCallActions
 
 
-enabled_functions = ["end_call", "look_up_availability", "detected_answering_machine"]
-
-
-tools = [
-    ToolConfig.model_validate(
-        {
-            "name": "book_taxi",
-            "description": "Book a taxi.",
-            "url_template": "https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/book-taxi?pick_up_location={pick_up_location}&drop_off_location={drop_off_location}",
-            "method": "POST",
-            "properties": {
-                "pick_up_location": {
-                    "description": "Pick-up location for the taxi",
-                    "required": True,
-                },
-                "drop_off_location": {
-                    "description": "Drop-off location for the taxi",
-                    "required": True,
-                },
-            },
-        }
-    ),
-    ToolConfig(
-        name="book_appointment",
-        description="Book an appointment slot for a patient.",
-        url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/book-appointment",
-        method="POST",
-        properties={
-            "slot_id": ToolInput(
-                description="The ID of the appointment slot to book", required=True
-            ),
-            "patient_name": ToolInput(description="Name of the patient", required=True),
-        },
-    ),
-    ToolConfig(
-        name="get_weather",
-        description="Fetches weather data for a given city.",
-        url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/weather?city={city}",
-        method="GET",
-        headers={"Content-Type": "application/json", "x-api-key": "xxxxx"},
-        properties={
-            "city": ToolInput(
-                description="The city name to fetch weather for", required=True
-            ),
-        },
-    ),
-    ToolConfig(
-        name="submit_ticket",
-        description="Submit a customer support ticket.",
-        url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/support-ticket",
-        method="POST",
-        properties={
-            "customer_name": ToolInput(
-                description="Customer's full name", required=True
-            ),
-            "email": ToolInput(description="Customer's email address", required=True),
-            "issue_description": ToolInput(
-                description="Detailed description of the issue", required=True
-            ),
-        },
-    ),
-]
-
-
-# Create call actions with both predefined and dynamic functions
-DynamicCallActionsCls = create_call_actions_class(
-    enabled_functions=enabled_functions, dynamic_schemas=tools
-)
-
 if __name__ == "__main__":
+
+    enabled_functions = [
+        "end_call",
+        "look_up_availability",
+        "detected_answering_machine",
+    ]
+
+    tools = [
+        ToolConfig.model_validate(
+            {
+                "name": "book_taxi",
+                "description": "Book a taxi.",
+                "url_template": "https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/book-taxi?pick_up_location={pick_up_location}&drop_off_location={drop_off_location}",
+                "method": "POST",
+                "properties": {
+                    "pick_up_location": {
+                        "description": "Pick-up location for the taxi",
+                        "required": True,
+                    },
+                    "drop_off_location": {
+                        "description": "Drop-off location for the taxi",
+                        "required": True,
+                    },
+                },
+            }
+        ),
+        ToolConfig(
+            name="book_appointment",
+            description="Book an appointment slot for a patient.",
+            url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/book-appointment",
+            method="POST",
+            properties={
+                "slot_id": ToolInput(
+                    description="The ID of the appointment slot to book", required=True
+                ),
+                "patient_name": ToolInput(
+                    description="Name of the patient", required=True
+                ),
+            },
+        ),
+        ToolConfig(
+            name="get_weather",
+            description="Fetches weather data for a given city.",
+            url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/weather?city={city}",
+            method="GET",
+            headers={"Content-Type": "application/json", "x-api-key": "xxxxx"},
+            properties={
+                "city": ToolInput(
+                    description="The city name to fetch weather for", required=True
+                ),
+            },
+        ),
+        ToolConfig(
+            name="submit_ticket",
+            description="Submit a customer support ticket.",
+            url_template="https://webhook.site/b54691fd-e7bb-4a26-a5be-aee1e3017c39/support-ticket",
+            method="POST",
+            properties={
+                "customer_name": ToolInput(
+                    description="Customer's full name", required=True
+                ),
+                "email": ToolInput(
+                    description="Customer's email address", required=True
+                ),
+                "issue_description": ToolInput(
+                    description="Detailed description of the issue", required=True
+                ),
+            },
+        ),
+    ]
+
+    # Create call actions with both predefined and dynamic functions
+    DynamicCallActionsCls = create_call_actions_class(
+        enabled_functions=enabled_functions, dynamic_schemas=tools
+    )
     action = DynamicCallActionsCls(api=None, participant=None, room=None, ctx=None)  # type: ignore
     print(action)
