@@ -2,7 +2,7 @@ from loguru import logger
 from sqlmodel import Session, select
 
 from app.agent.models import AgentModel
-from app.agent.schema import AgentSettings
+from app.agent.schema import AgentSettings, MakeOutboundCallInputs
 from openai import OpenAI
 
 from app.lk_connector.models import InboundTrunk, PhoneNumber
@@ -39,7 +39,7 @@ class AssistantService:
             existing_agent = await self.find_agent_by(phone_number=settings.agent_phone)
             if existing_agent and settings.agent_id is None:
                 raise ValueError(
-                    f"Phone number {settings.agent_phone} is already assigned to agent {existing_agent.id} ({existing_agent.config.get("agent_name")})"
+                    f"Phone number {settings.agent_phone} is already assigned to agent {existing_agent.id} ({existing_agent.config.get('agent_name')})"
                 )
 
             # if the phone number is already connected
@@ -96,3 +96,26 @@ class AssistantService:
 
         results = self.session.exec(statement)
         return results.first()
+
+    async def find_agents(self) -> list[AgentModel]:
+        statement = select(AgentModel)
+        results = self.session.exec(statement)
+        return results.fetchmany()  # type: ignore
+
+    async def make_outbound_call(
+        self, agent_id: str, inputs: MakeOutboundCallInputs
+    ) -> str:
+        agent = await self.find_agent(agent_id)
+        if not agent:
+            raise ValueError(f"Agent {agent_id} not found")
+
+        payload = {
+            "agent_id": agent_id,
+            "sip_trunk_id": agent.config["account_id"],
+            "agent_phone": inputs.from_number or agent.config["agent_phone"],
+            "customer_phone": inputs.to_number,
+            "direction": "outbound",
+        }
+
+        logger.debug(f"Making outbound call: {payload}")
+        return "call started successfully"

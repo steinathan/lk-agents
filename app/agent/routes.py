@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.agent.deps import AssistantServiceType
-from app.agent.schema import AgentSettings
+from app.agent.schema import AgentSettings, MakeOutboundCallInputs
 
 router = APIRouter(tags=["agent"], prefix="/agent")
 
@@ -30,3 +30,25 @@ async def find_agent_by(
     if not agent:
         raise HTTPException(status_code=501, detail="Agent not found")
     return agent
+
+
+@router.get("/find_all")
+async def find_all_agents(
+    agent_service: AssistantServiceType,
+):
+    agents = await agent_service.find_agents()
+    return agents
+
+
+@router.post("/{agent_id}/outbound_call")
+async def make_call(
+    agent_service: AssistantServiceType,
+    inputs: MakeOutboundCallInputs,
+    agent_id: str,
+):
+    """use the agent to make an outbound call"""
+    try:
+        return await agent_service.make_outbound_call(agent_id, inputs)
+    except Exception as e:
+        logger.exception(f"Failed to create agent: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})

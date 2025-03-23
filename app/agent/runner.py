@@ -1,3 +1,4 @@
+import json
 import os
 from typing import Any, TypedDict
 
@@ -20,6 +21,7 @@ from livekit.agents.pipeline import VoicePipelineAgent
 
 from app.agent.schema import AgentSettings
 from app.agent.service import AssistantService
+from livekit import api
 
 # from app.agent.tools import create_assistant_tool
 from app.agent.tools import DynamicCallActionsCls
@@ -125,19 +127,47 @@ class VoiceAgent:
         logger.info(f"connecting to room {ctx.room.name}")
         await ctx.connect(auto_subscribe=AutoSubscribe.AUDIO_ONLY)
 
+        metadict = json.loads(ctx.job.metadata or ctx.room.metadata or "{}")
+
+        # `create_sip_participant` starts dialing the user
+        if (
+            metadict.get("direction", None) == "outbound"
+            and metadict.get("customer_phone", None) is not None
+        ):
+            logger.info(f"starting outbound call: {metadict}")
+            await ctx.api.sip.create_sip_participant(
+                api.CreateSIPParticipantRequest(
+                    room_name=ctx.room.name,
+                    sip_trunk_id="ST_MN4cDinM7YZf",
+                    sip_call_to=metadict["customer_phone"],
+                    participant_identity=metadict.get(
+                        "agent_name", "Default Agent Name"
+                    ),
+                    wait_until_answered=True,
+                )
+            )
+
         # Wait for the first agent participant to connect
         participant = await ctx.wait_for_participant()
+
         agent_attributes = participant.attributes or {}
 
         logger.info(f"starting voice assistant for participant {participant.identity}")
-        logger.info(f"Attributes: {agent_attributes}")
 
         agent_phone = agent_attributes.get(
-            "sip.trunkPhoneNumber", agent_attributes.get("agent_phone", None)
+            "sip.trunkPhoneNumber",
+            agent_attributes.get("agent_phone", metadict.get("agent_phone", None)),
         )
 
         customer_phone = agent_attributes.get(
-            "sip.phoneNumber", agent_attributes.get("customer_phone", None)
+            "sip.phoneNumber",
+            agent_attributes.get(
+                "customer_phone", metadict.get("customer_phone", None)
+            ),
+        )
+
+        logger.info(
+            f"info: agent phone: {agent_phone}, customer phone: {customer_phone}"
         )
 
         if agent_phone is None or customer_phone is None:

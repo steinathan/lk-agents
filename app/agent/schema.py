@@ -4,12 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, Field, computed_field
 from loguru import logger
 
-from app.utils import make_cuid
-
 
 AgentVoiceProvider = Literal["openai", "google"]
 AgentLLMProvider = Literal["openai", "google"]
 AgentTranscriberProvider = Literal["deepgram", "google", "openai"]
+
+
+class MakeOutboundCallInputs(BaseModel):
+    from_number: str | None = None
+    to_number: str
 
 
 class AgentSecretSettings(BaseModel):

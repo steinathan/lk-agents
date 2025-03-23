@@ -20,7 +20,8 @@ async def init_db() -> None:
         # But if you don't want to use migrations, create
         # the tables un-commenting the next lines
         # from sqlmodel import SQLModel
-        SQLModel.metadata.create_all(engine)
+        # SQLModel.metadata.create_all(engine)
+        pass
 
 
 # ┌┬┐┌─┐┌┬┐┌─┐┌┐ ┌─┐┌─┐┌─┐  ┌┬┐┌─┐┌─┐┌─┐┌┐┌┌┬┐┌─┐┌┐┌┌─┐┬ ┬┬
