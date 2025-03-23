@@ -5,6 +5,9 @@ from app.agent.models import AgentModel
 from app.agent.schema import AgentSettings
 from openai import OpenAI
 
+from app.lk_connector.models import InboundTrunk, PhoneNumber
+from app.utils import make_cuid
+
 
 class AssistantService:
     def __init__(self, session: Session) -> None:
@@ -13,15 +16,66 @@ class AssistantService:
 
     async def create_agent(self, settings: AgentSettings) -> AgentModel:
         logger.debug(f"Creating agent with settings: {settings}")
-        new_agent = AgentModel(
-            is_active=True,
-            config=settings.model_dump(),
-        )
 
-        # if there are configured knowledgebases, add them to the assisatn
-        self.session.add(new_agent)
-        self.session.commit()
-        self.session.refresh(new_agent)
+        # TODO: have a global accounts table instead of depending on trunks
+        if settings.account_id is not None:
+            connected_trunk = self.session.exec(
+                select(InboundTrunk).where(
+                    InboundTrunk.account_id == settings.account_id
+                )
+            ).first()
+
+            if not connected_trunk:
+                raise ValueError(
+                    f"SIP trunk not found for `{settings.account_id}`, use the `/api/connector/connect` endpoint first"
+                )
+            if connected_trunk.account_id != settings.account_id:
+                raise ValueError(
+                    f"account id mismatch {connected_trunk.account_id} != {settings.account_id}"
+                )
+
+        if settings.agent_phone is not None:
+            # check if phone number is already in use
+            existing_agent = await self.find_agent_by(phone_number=settings.agent_phone)
+            if existing_agent and settings.agent_id is None:
+                raise ValueError(
+                    f"Phone number {settings.agent_phone} is already assigned to agent {existing_agent.id} ({existing_agent.config.get("agent_name")})"
+                )
+
+            # if the phone number is already connected
+            stmt = select(PhoneNumber).where(
+                PhoneNumber.phone_number == settings.agent_phone
+            )
+            phone_number = self.session.exec(stmt).first()
+            if not phone_number:
+                raise ValueError(
+                    f"Phone number {settings.agent_phone} is not connected to any account, use the `/api/connector/connect` endpoint first, then connect that number to this agent"
+                )
+
+        if not settings.agent_id:
+            logger.info("Creating new agent")
+            settings.agent_id = make_cuid("agent_")
+            new_agent = AgentModel(
+                id=settings.agent_id,
+                is_active=True,
+                config=settings.model_dump(),
+            )
+
+            self.session.add(new_agent)
+            self.session.commit()
+            self.session.refresh(new_agent)
+        else:
+            logger.info(f"updating agent: {settings.agent_id}")
+            new_agent = await self.find_agent(settings.agent_id)
+            if not new_agent:
+                raise ValueError(f"Agent {settings.agent_id} not found")
+
+            new_agent.is_active = True
+            new_agent.config = settings.model_dump()
+            self.session.add(new_agent)
+            self.session.commit()
+            self.session.refresh(new_agent)
+
         return new_agent
 
     async def find_agent(self, agent_id: str) -> AgentModel | None:

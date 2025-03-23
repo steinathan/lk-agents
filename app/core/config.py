@@ -74,7 +74,7 @@ class __Settings(BaseSettings):
     LEMON_PRO_PLAN_ID: str = Field("")
     LEMON_FREE_PLAN_ID: str = Field("")
 
-    LIVEKIT_AGENT_NAME: str = "voicecab-inbound-agent"
+    LIVEKIT_AGENT_NAME: str = "navi-inbound-agent"
 
 
 # all ways use this settings rather than using __Settings()

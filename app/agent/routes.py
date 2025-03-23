@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from loguru import logger
 
 from app.agent.deps import AssistantServiceType
@@ -13,10 +14,10 @@ async def publish_agent(agent_service: AssistantServiceType, inputs: AgentSettin
         agent = await agent_service.create_agent(inputs)
         if not agent:
             raise HTTPException(status_code=500, detail="Failed to create agent")
-        return {"message": "agent created successfully", "agent": agent}
+        return {"message": "agent published successfully", "agent": agent}
     except Exception as e:
-        logger.error(f"Failed to create agent: {e}")
-        raise
+        logger.exception(f"Failed to create agent: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
 
 
 @router.get("/find")

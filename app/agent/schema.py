@@ -77,8 +77,8 @@ class AgentSettings(
     agent_phone: str | None = Field(
         default_factory=lambda: os.getenv("TEST_AGENT_PHONE")
     )
-    agent_id: str = Field(default_factory=lambda: make_cuid("agent_"))
-    interaction_id: str = Field(default_factory=lambda: make_cuid("inter_"))
+    agent_id: str | None = None
+    interaction_id: str | None = None
 
     @computed_field
     @property
